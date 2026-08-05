@@ -108,6 +108,8 @@ public class L2capCocActivity extends Activity implements BluetoothL2capService.
     private static final int[] PHY_OPTION_VALUES = {0, 0x04, 0x08, 0x10, 0x20, 0x40};
 
     // HDT+ Settings UI components
+    private TextView headerHdtPlus;
+    private View llHdtPlusBody;
     private Spinner spinnerHdtBwExt, spinnerHdtIfh, spinnerHdtChs;
     private Spinner spinnerHdtBlockRepCToP, spinnerHdtBlockRepPToC;
     private Spinner spinnerHdtMaxBrCToP, spinnerHdtMaxBrPToC;
@@ -117,8 +119,20 @@ public class L2capCocActivity extends Activity implements BluetoothL2capService.
             spinnerHdtRatePToC12, spinnerHdtRatePToC15;
     private Button btnSetHdtPlus;
 
+    // XDT Settings UI components
+    private TextView headerXdt;
+    private View llXdtBody;
+    private Spinner spinnerXdtEnable, spinnerXdtBlockRepCToP, spinnerXdtBlockRepPToC;
+    private Spinner spinnerXdtMaxBrCToP, spinnerXdtMaxBrPToC;
+    private Spinner spinnerXdtRateCToP4, spinnerXdtRateCToP6, spinnerXdtRateCToP8,
+            spinnerXdtRateCToP12, spinnerXdtRateCToP15;
+    private Spinner spinnerXdtRatePToC4, spinnerXdtRatePToC6, spinnerXdtRatePToC8,
+            spinnerXdtRatePToC12, spinnerXdtRatePToC15;
+    private Button btnSetXdt;
+
     // Max block repetition count values matching spinner positions
-    private static final int[] HDT_PLUS_BR_COUNT_VALUES =
+    // (shared by both the HDT+ and XDT block-repetition-count spinners)
+    private static final int[] BLOCK_REP_COUNT_VALUES =
             {0, 1, 2, 4, 8, 16, 32, 64, 128, 255};
 
     // UI Handler for thread-safe updates
@@ -246,6 +260,9 @@ public class L2capCocActivity extends Activity implements BluetoothL2capService.
         // Update HDT+ controls
         updateHdtPlusControls(active);
 
+        // Update XDT controls
+        updateXdtControls(active);
+
         appendLog("Connected to L2CAP service");
     }
     
@@ -338,6 +355,14 @@ public class L2capCocActivity extends Activity implements BluetoothL2capService.
         setupHdtPlusSpinners();
         btnSetHdtPlus.setOnClickListener(v -> setHdtPlusFeatures());
 
+        // XDT Settings
+        setupXdtSpinners();
+        btnSetXdt.setOnClickListener(v -> setXdtFeatures());
+
+        // Collapsible section headers
+        headerHdtPlus.setOnClickListener(v -> toggleSection(llHdtPlusBody, headerHdtPlus, "HDT+ Settings"));
+        headerXdt.setOnClickListener(v -> toggleSection(llXdtBody, headerXdt, "XDT Settings"));
+
         // LE Connection Interval
         spinnerConnInterval = findViewById(R.id.spinnerConnInterval);
         btnSetConnInterval  = findViewById(R.id.btnSetConnInterval);
@@ -360,6 +385,7 @@ public class L2capCocActivity extends Activity implements BluetoothL2capService.
         updateConnIntervalControls(false);
         updatePhyControls(false);
         updateHdtPlusControls(false);
+        updateXdtControls(false);
         updateCreditsDisplay(0, 0);
         
         // Initialize status displays
@@ -730,6 +756,7 @@ public class L2capCocActivity extends Activity implements BluetoothL2capService.
             updateConnIntervalControls(connected);
             updatePhyControls(connected);
             updateHdtPlusControls(connected);
+            updateXdtControls(connected);
             updateServerButtons(l2capService != null && l2capService.isServerRunning());
             if (connected) {
                 appendLog("Connection established");
@@ -1151,6 +1178,53 @@ public class L2capCocActivity extends Activity implements BluetoothL2capService.
     }
 
     // -------------------------------------------------------------------------
+    // HDT+ / XDT shared helpers
+    // -------------------------------------------------------------------------
+
+    /**
+     * Toggle a collapsible section's visibility and flip its header's leading
+     * arrow indicator (▸ collapsed / ▾ expanded). Purely a UI concern —
+     * independent of connection state.
+     */
+    private void toggleSection(View body, TextView header, String title) {
+        boolean expanded = body.getVisibility() == View.VISIBLE;
+        body.setVisibility(expanded ? View.GONE : View.VISIBLE);
+        header.setText((expanded ? "▸ " : "▾ ") + title);
+    }
+
+    /**
+     * Resolve the Connection_Handle for the active L2CAP CoC connection via
+     * BluetoothDevice.getConnectionHandle() (hidden SystemApi, called via
+     * reflection) — the user never enters it manually.
+     * @param logPrefix prefix used for appendLog() messages (e.g. "HDT+", "XDT")
+     * @return the resolved connection handle, or -1 if it could not be resolved
+     */
+    private int resolveConnectionHandle(String logPrefix) {
+        if (phyGatt == null || l2capService == null) {
+            appendLog(logPrefix + ": GATT not ready – ensure LE connection is established first");
+            return -1;
+        }
+
+        BluetoothDevice device = l2capService.getConnectedDevice();
+        if (device == null) {
+            appendLog(logPrefix + ": no connected device");
+            return -1;
+        }
+
+        if (vendorCommands == null) {
+            appendLog(logPrefix + ": vendor command helper not ready");
+            return -1;
+        }
+
+        int connectionHandle = vendorCommands.getConnectionHandle(device, BluetoothDevice.TRANSPORT_LE);
+        if (connectionHandle < 0) {
+            appendLog(logPrefix + ": failed to resolve connection handle");
+            return -1;
+        }
+        return connectionHandle;
+    }
+
+    // -------------------------------------------------------------------------
     // HDT+ Settings methods
     // -------------------------------------------------------------------------
 
@@ -1169,6 +1243,8 @@ public class L2capCocActivity extends Activity implements BluetoothL2capService.
      * list style used for the block-repetition-count spinners.
      */
     private void setupHdtPlusSpinners() {
+        headerHdtPlus = findViewById(R.id.headerHdtPlus);
+        llHdtPlusBody = findViewById(R.id.llHdtPlusBody);
         spinnerHdtBwExt = findViewById(R.id.spinnerHdtBwExt);
         spinnerHdtIfh = findViewById(R.id.spinnerHdtIfh);
         spinnerHdtChs = findViewById(R.id.spinnerHdtChs);
@@ -1204,9 +1280,9 @@ public class L2capCocActivity extends Activity implements BluetoothL2capService.
             spinner.setAdapter(adapter);
         }
 
-        String[] brCountLabels = new String[HDT_PLUS_BR_COUNT_VALUES.length];
-        for (int i = 0; i < HDT_PLUS_BR_COUNT_VALUES.length; i++) {
-            brCountLabels[i] = String.valueOf(HDT_PLUS_BR_COUNT_VALUES[i]);
+        String[] brCountLabels = new String[BLOCK_REP_COUNT_VALUES.length];
+        for (int i = 0; i < BLOCK_REP_COUNT_VALUES.length; i++) {
+            brCountLabels[i] = String.valueOf(BLOCK_REP_COUNT_VALUES[i]);
         }
         Spinner[] brCountSpinners = {spinnerHdtMaxBrCToP, spinnerHdtMaxBrPToC};
         for (Spinner spinner : brCountSpinners) {
@@ -1220,32 +1296,10 @@ public class L2capCocActivity extends Activity implements BluetoothL2capService.
     /**
      * Send the HCI VS Set HDT+ Features Enable command using the values selected
      * in the HDT+ Settings spinners.
-     *
-     * The Connection_Handle parameter is resolved automatically via
-     * BluetoothDevice.getConnectionHandle() (hidden SystemApi, called via
-     * reflection) on the device backing the active L2CAP CoC connection — the
-     * user never enters it manually.
      */
     private void setHdtPlusFeatures() {
-        if (phyGatt == null || l2capService == null) {
-            appendLog("HDT+: GATT not ready – ensure LE connection is established first");
-            return;
-        }
-
-        BluetoothDevice device = l2capService.getConnectedDevice();
-        if (device == null) {
-            appendLog("HDT+: no connected device");
-            return;
-        }
-
-        BluetoothVendorCommands vendorCommands = this.vendorCommands;
-        if (vendorCommands == null) {
-            appendLog("HDT+: vendor command helper not ready");
-            return;
-        }
-        int connectionHandle = vendorCommands.getConnectionHandle(device, BluetoothDevice.TRANSPORT_LE);
+        int connectionHandle = resolveConnectionHandle("HDT+");
         if (connectionHandle < 0) {
-            appendLog("HDT+: failed to resolve connection handle");
             return;
         }
 
@@ -1266,8 +1320,8 @@ public class L2capCocActivity extends Activity implements BluetoothL2capService.
             hdtPlusFeatures |= BluetoothVendorCommands.HDT_PLUS_FEATURE_BLOCK_REP_P_TO_C;
         }
 
-        int brCToP = HDT_PLUS_BR_COUNT_VALUES[spinnerHdtMaxBrCToP.getSelectedItemPosition()];
-        int brPToC = HDT_PLUS_BR_COUNT_VALUES[spinnerHdtMaxBrPToC.getSelectedItemPosition()];
+        int brCToP = BLOCK_REP_COUNT_VALUES[spinnerHdtMaxBrCToP.getSelectedItemPosition()];
+        int brPToC = BLOCK_REP_COUNT_VALUES[spinnerHdtMaxBrPToC.getSelectedItemPosition()];
 
         int ratesCToP = 0;
         if (spinnerHdtRateCToP4.getSelectedItemPosition() == 1) {
@@ -1314,6 +1368,143 @@ public class L2capCocActivity extends Activity implements BluetoothL2capService.
         boolean result = vendorCommands.sendSetHdtPlusFeaturesEnable(
                 connectionHandle, hdtPlusFeatures, brCToP, brPToC, ratesCToP, ratesPToC);
         appendLog("HDT+: Set Features Enable " + (result ? "sent" : "FAILED"));
+    }
+
+    // -------------------------------------------------------------------------
+    // XDT Settings methods
+    // -------------------------------------------------------------------------
+
+    /**
+     * Enable or disable the Set XDT Features button based on connection state.
+     */
+    private void updateXdtControls(boolean connected) {
+        if (btnSetXdt != null) {
+            btnSetXdt.setEnabled(connected);
+        }
+    }
+
+    /**
+     * Populate all XDT Settings spinners with dropdown labels, matching the
+     * "Disabled"/"Enabled" style used for feature-bit toggles, and the numeric
+     * list style used for the block-repetition-count spinners.
+     */
+    private void setupXdtSpinners() {
+        headerXdt = findViewById(R.id.headerXdt);
+        llXdtBody = findViewById(R.id.llXdtBody);
+        spinnerXdtEnable = findViewById(R.id.spinnerXdtEnable);
+        spinnerXdtBlockRepCToP = findViewById(R.id.spinnerXdtBlockRepCToP);
+        spinnerXdtBlockRepPToC = findViewById(R.id.spinnerXdtBlockRepPToC);
+        spinnerXdtMaxBrCToP = findViewById(R.id.spinnerXdtMaxBrCToP);
+        spinnerXdtMaxBrPToC = findViewById(R.id.spinnerXdtMaxBrPToC);
+        spinnerXdtRateCToP4 = findViewById(R.id.spinnerXdtRateCToP4);
+        spinnerXdtRateCToP6 = findViewById(R.id.spinnerXdtRateCToP6);
+        spinnerXdtRateCToP8 = findViewById(R.id.spinnerXdtRateCToP8);
+        spinnerXdtRateCToP12 = findViewById(R.id.spinnerXdtRateCToP12);
+        spinnerXdtRateCToP15 = findViewById(R.id.spinnerXdtRateCToP15);
+        spinnerXdtRatePToC4 = findViewById(R.id.spinnerXdtRatePToC4);
+        spinnerXdtRatePToC6 = findViewById(R.id.spinnerXdtRatePToC6);
+        spinnerXdtRatePToC8 = findViewById(R.id.spinnerXdtRatePToC8);
+        spinnerXdtRatePToC12 = findViewById(R.id.spinnerXdtRatePToC12);
+        spinnerXdtRatePToC15 = findViewById(R.id.spinnerXdtRatePToC15);
+        btnSetXdt = findViewById(R.id.btnSetXdt);
+
+        String[] toggleLabels = {"Disabled", "Enabled"};
+        Spinner[] toggleSpinners = {
+            spinnerXdtEnable, spinnerXdtBlockRepCToP, spinnerXdtBlockRepPToC,
+            spinnerXdtRateCToP4, spinnerXdtRateCToP6, spinnerXdtRateCToP8,
+            spinnerXdtRateCToP12, spinnerXdtRateCToP15,
+            spinnerXdtRatePToC4, spinnerXdtRatePToC6, spinnerXdtRatePToC8,
+            spinnerXdtRatePToC12, spinnerXdtRatePToC15
+        };
+        for (Spinner spinner : toggleSpinners) {
+            ArrayAdapter<String> adapter = new ArrayAdapter<>(
+                    this, android.R.layout.simple_spinner_item, toggleLabels);
+            adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+            spinner.setAdapter(adapter);
+        }
+
+        String[] brCountLabels = new String[BLOCK_REP_COUNT_VALUES.length];
+        for (int i = 0; i < BLOCK_REP_COUNT_VALUES.length; i++) {
+            brCountLabels[i] = String.valueOf(BLOCK_REP_COUNT_VALUES[i]);
+        }
+        Spinner[] brCountSpinners = {spinnerXdtMaxBrCToP, spinnerXdtMaxBrPToC};
+        for (Spinner spinner : brCountSpinners) {
+            ArrayAdapter<String> adapter = new ArrayAdapter<>(
+                    this, android.R.layout.simple_spinner_item, brCountLabels);
+            adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+            spinner.setAdapter(adapter);
+        }
+    }
+
+    /**
+     * Send the HCI VS LE XDT Features Enable command using the values selected
+     * in the XDT Settings spinners.
+     */
+    private void setXdtFeatures() {
+        int connectionHandle = resolveConnectionHandle("XDT");
+        if (connectionHandle < 0) {
+            return;
+        }
+
+        long xdtFeatures = 0;
+        if (spinnerXdtEnable.getSelectedItemPosition() == 1) {
+            xdtFeatures |= BluetoothVendorCommands.XDT_FEATURE_XDT;
+        }
+        if (spinnerXdtBlockRepCToP.getSelectedItemPosition() == 1) {
+            xdtFeatures |= BluetoothVendorCommands.XDT_FEATURE_BLOCK_REP_C_TO_P;
+        }
+        if (spinnerXdtBlockRepPToC.getSelectedItemPosition() == 1) {
+            xdtFeatures |= BluetoothVendorCommands.XDT_FEATURE_BLOCK_REP_P_TO_C;
+        }
+
+        int brCToP = BLOCK_REP_COUNT_VALUES[spinnerXdtMaxBrCToP.getSelectedItemPosition()];
+        int brPToC = BLOCK_REP_COUNT_VALUES[spinnerXdtMaxBrPToC.getSelectedItemPosition()];
+
+        int ratesCToP = 0;
+        if (spinnerXdtRateCToP4.getSelectedItemPosition() == 1) {
+            ratesCToP |= BluetoothVendorCommands.XDT_RATE_4;
+        }
+        if (spinnerXdtRateCToP6.getSelectedItemPosition() == 1) {
+            ratesCToP |= BluetoothVendorCommands.XDT_RATE_6;
+        }
+        if (spinnerXdtRateCToP8.getSelectedItemPosition() == 1) {
+            ratesCToP |= BluetoothVendorCommands.XDT_RATE_8;
+        }
+        if (spinnerXdtRateCToP12.getSelectedItemPosition() == 1) {
+            ratesCToP |= BluetoothVendorCommands.XDT_RATE_12;
+        }
+        if (spinnerXdtRateCToP15.getSelectedItemPosition() == 1) {
+            ratesCToP |= BluetoothVendorCommands.XDT_RATE_15;
+        }
+
+        int ratesPToC = 0;
+        if (spinnerXdtRatePToC4.getSelectedItemPosition() == 1) {
+            ratesPToC |= BluetoothVendorCommands.XDT_RATE_4;
+        }
+        if (spinnerXdtRatePToC6.getSelectedItemPosition() == 1) {
+            ratesPToC |= BluetoothVendorCommands.XDT_RATE_6;
+        }
+        if (spinnerXdtRatePToC8.getSelectedItemPosition() == 1) {
+            ratesPToC |= BluetoothVendorCommands.XDT_RATE_8;
+        }
+        if (spinnerXdtRatePToC12.getSelectedItemPosition() == 1) {
+            ratesPToC |= BluetoothVendorCommands.XDT_RATE_12;
+        }
+        if (spinnerXdtRatePToC15.getSelectedItemPosition() == 1) {
+            ratesPToC |= BluetoothVendorCommands.XDT_RATE_15;
+        }
+
+        appendLog("XDT: Set Features Enable"
+                + "  Handle=0x" + Integer.toHexString(connectionHandle)
+                + "  Features=0x" + Long.toHexString(xdtFeatures)
+                + "  BR_C_To_P=" + brCToP
+                + "  BR_P_To_C=" + brPToC
+                + "  Rates_C_To_P=0x" + Integer.toHexString(ratesCToP)
+                + "  Rates_P_To_C=0x" + Integer.toHexString(ratesPToC));
+
+        boolean result = vendorCommands.sendSetXdtFeaturesEnable(
+                connectionHandle, xdtFeatures, brCToP, brPToC, ratesCToP, ratesPToC);
+        appendLog("XDT: Set Features Enable " + (result ? "sent" : "FAILED"));
     }
 
     @Override
