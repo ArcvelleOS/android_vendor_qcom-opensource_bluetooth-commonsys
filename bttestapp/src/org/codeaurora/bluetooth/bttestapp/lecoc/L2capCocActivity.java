@@ -82,7 +82,7 @@ public class L2capCocActivity extends Activity implements BluetoothL2capService.
     private String receivingFileName;
     private long expectedFileBytesRemaining;
     private long receivedFileByteCount;
-    
+
     // Service components
     private BluetoothL2capService l2capService;
     private boolean isServiceBound = false;
@@ -772,6 +772,14 @@ public class L2capCocActivity extends Activity implements BluetoothL2capService.
             updateXdtControls(connected);
             updateServerButtons(l2capService != null && l2capService.isServerRunning());
             if (connected) {
+                try {
+                    if (bluetoothAdapter != null && bluetoothAdapter.isDiscovering()) {
+                        bluetoothAdapter.cancelDiscovery();
+                        appendLog("Device discovery stopped (connection established)");
+                    }
+                } catch (SecurityException e) {
+                    appendLog("Permission denied stopping device discovery: " + e.getMessage());
+                }
                 appendLog("Connection established");
                 // Open the PHY GATT helper so setPreferredPhy() is ready to call
                 if (l2capService != null) {
@@ -870,6 +878,7 @@ public class L2capCocActivity extends Activity implements BluetoothL2capService.
             appendLog("File received: " + name + " (" + formatBytes(size) + ")");
         }
     }
+
 
     /** Strips directory separators/".." so a malicious peer can't write outside the target dir. */
     private String sanitizeFileName(String name) {
@@ -990,12 +999,20 @@ public class L2capCocActivity extends Activity implements BluetoothL2capService.
      */
     private void sendFileInChunks(Uri uri) throws IOException {
         L2capCocConfig config = L2capCocConfig.getInstance(this);
-        final int CHUNK_SIZE = Math.min(config.getBufferSize(), L2capCocConfig.MAX_BUFFER_SIZE);
+        // Buffer size is the complete framed SDU size; reserve the app length prefix.
+        final int frameHeaderSize = config.getHeaderSize();
+        final int CHUNK_SIZE = Math.min(config.getBufferSize() - frameHeaderSize,
+                L2capCocConfig.MAX_BUFFER_SIZE - frameHeaderSize);
+        if (CHUNK_SIZE <= 0) {
+            throw new IOException("Buffer size must exceed header size");
+        }
         final byte[] buffer = new byte[CHUNK_SIZE];
 
         long totalBytes = 0;
         long sentBytes = 0;
         int chunkCount = 0;
+        boolean transferFailed = false;
+        String transferFailureReason = null;
 
         uiHandler.post(() -> appendLog("Starting file transfer in chunks of " + CHUNK_SIZE + " bytes"));
 
@@ -1038,34 +1055,20 @@ public class L2capCocActivity extends Activity implements BluetoothL2capService.
 
                 // Send chunk via service on background thread (already executing in one)
                 final int currentChunk = chunkCount;
-                final long currentSentBytes = sentBytes + bytesRead;
-                final long finalTotalBytes = totalBytes;
 
                 // Perform I/O on background thread to avoid ANR
-                boolean success = false;
-                if (l2capService != null) {
-                    success = l2capService.sendData(chunkData);
+                boolean success = l2capService != null && l2capService.sendData(chunkData);
+                if (success) {
+                    sentBytes += bytesRead;
+                } else {
+                    transferFailed = true;
+                    transferFailureReason = (l2capService == null || !l2capService.hasActiveConnection())
+                            ? "connection lost" : "send rejected";
+                    final String failureReason = transferFailureReason;
+                    uiHandler.post(() -> appendLog("Failed to send chunk " + currentChunk
+                            + " - " + failureReason));
+                    break;
                 }
-
-                // Only post UI update to handler
-                final boolean finalSuccess = success;
-                uiHandler.post(() -> {
-                    if (finalSuccess) {
-                        String progressMsg = String.format("Sent chunk %d (%s)",
-                            currentChunk, formatBytes(chunkData.length));
-
-                        if (finalTotalBytes > 0) {
-                            int progress = (int) ((currentSentBytes * 100) / finalTotalBytes);
-                            progressMsg += String.format(" - Progress: %d%%", progress);
-                        }
-
-                        appendLog(progressMsg);
-                    } else {
-                        appendLog("Failed to send chunk " + currentChunk + " - connection lost");
-                    }
-                });
-
-                sentBytes += bytesRead;
 
                 // Small delay to prevent overwhelming the Bluetooth stack
                 try {
@@ -1074,6 +1077,10 @@ public class L2capCocActivity extends Activity implements BluetoothL2capService.
                     Thread.currentThread().interrupt();
                     throw new IOException("File transfer interrupted", e);
                 }
+            }
+
+            if (transferFailed) {
+                throw new IOException("File transfer stopped: " + transferFailureReason);
             }
 
             // Final status update
