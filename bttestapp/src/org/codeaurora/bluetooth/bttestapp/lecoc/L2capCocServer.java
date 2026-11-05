@@ -216,7 +216,10 @@ public class L2capCocServer extends L2capCocBase {
                     connectedDevice = socket.getRemoteDevice();
                     
                     if (DBG) Log.d(TAG, "Client connected: " + connectedDevice.getAddress());
-                    
+
+                    // Stop advertising while the LE CoC connection is active.
+                    stopAdvertising();
+
                     // Setup I/O streams
                     setupStreams();
                     

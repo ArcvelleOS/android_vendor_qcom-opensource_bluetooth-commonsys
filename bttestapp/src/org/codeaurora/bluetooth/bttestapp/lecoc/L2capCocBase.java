@@ -86,7 +86,17 @@ public abstract class L2capCocBase {
     public int getAvailableCredits() {
         return availableCredits.get();
     }
-    
+
+    /**
+     * Get the maximum packet size negotiated by the Bluetooth stack for TX.
+     * The socket stack fragments larger writes into packets of this size.
+     *
+     * @return negotiated TX packet size, or 0 if the socket is not connected
+     */
+    public int getMaxTransmitPacketSize() {
+        return socket != null ? socket.getMaxTransmitPacketSize() : 0;
+    }
+
     /**
      * Send data to the connected device
      * 
@@ -109,22 +119,21 @@ public abstract class L2capCocBase {
             return false;
         }
         
-        // Check credits before sending
+        // Track local credits for display only. The Bluetooth stack handles
+        // the actual L2CAP flow control for the socket.
         synchronized (creditsLock) {
-            if (availableCredits.get() <= 0) {
-                if (DBG) Log.w(TAG, "No credits available for sending data");
-                return false;
+            if (availableCredits.get() > 0) {
+                availableCredits.decrementAndGet();
             }
-            availableCredits.decrementAndGet();
         }
         
         try {
-            // Send data length first (4 bytes, big-endian)
+            // Send the application length and payload as one LE CoC SDU.
             byte[] lengthBytes = intToBytes(data.length);
-            outputStream.write(lengthBytes);
-            
-            // Send actual data
-            outputStream.write(data);
+            byte[] framedData = new byte[lengthBytes.length + data.length];
+            System.arraycopy(lengthBytes, 0, framedData, 0, lengthBytes.length);
+            System.arraycopy(data, 0, framedData, lengthBytes.length, data.length);
+            outputStream.write(framedData);
             outputStream.flush();
             
             if (DBG) Log.d(TAG, "Sent " + data.length + " bytes, credits remaining: " + availableCredits.get());
