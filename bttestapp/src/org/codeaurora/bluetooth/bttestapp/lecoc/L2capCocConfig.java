@@ -20,6 +20,8 @@ public class L2capCocConfig {
     private static final String KEY_PSM = "psm";
     
     // Default values (original static values)
+    // Size of one application frame submitted to BluetoothSocket. The Bluetooth
+    // stack may split this frame into multiple L2CAP/HCI packets.
     public static final int DEFAULT_BUFFER_SIZE = 1048576;
     public static final int MAX_BUFFER_SIZE = 52428800; // 50 MB
     public static final int DEFAULT_MAX_CREDITS = 10;

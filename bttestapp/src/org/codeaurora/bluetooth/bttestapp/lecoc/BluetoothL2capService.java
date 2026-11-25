@@ -444,7 +444,7 @@ public class BluetoothL2capService extends Service implements L2capCocCallback {
     @Override
     public void onDataReceived(byte[] data) {
         Log.d(TAG, "Data received: " + data.length + " bytes");
-        
+
         // Notify all registered callbacks
         mainHandler.post(() -> {
             for (ServiceCallback callback : callbacks) {
